@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>NutriTrack | Cronometer Macro & Micronutrient Tracker</title>
+  
+  <!-- PWA & Mobile Web App Meta -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#059669">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="NutriTrack">
+  <link rel="apple-touch-icon" href="icons/icon-192.svg">
+  
+  <!-- Inter Font -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['"Plus Jakarta Sans"', 'sans-serif'],
+            mono: ['"JetBrains Mono"', 'monospace'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfdf5',
+              100: '#d1fae5',
+              500: '#10b981',
+              600: '#059669',
+              700: '#047857',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+
+  <!-- SheetJS (XLSX) for Excel & CSV Support -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <style>
+    /* Custom scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.4); border-radius: 9999px; }
+    ::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.6); }
+  </style>
+</head>
+<body class="bg-slate-100 dark:bg-slate-900 text-slate-800 dark:text-slate-100 min-h-full flex flex-col font-sans transition-colors duration-200">
+
+  <!-- Floating Toast Notification for Save & Confirmation -->
+  <div id="save-toast" class="fixed top-20 right-6 z-50 transform -translate-y-4 opacity-0 pointer-events-none transition-all duration-300 ease-out bg-slate-900/95 text-white dark:bg-emerald-950 dark:border dark:border-emerald-700/60 dark:text-emerald-100 px-5 py-3.5 rounded-2xl shadow-2xl flex items-center gap-3 text-xs font-semibold backdrop-blur-md">
+    <div class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+      <i data-lucide="check" class="w-4 h-4"></i>
+    </div>
+    <span id="save-toast-text">Diet saved successfully!</span>
+  </div>
+
+  <!-- Top Navbar -->
+  <header class="sticky top-0 z-30 bg-white/90 dark:bg-slate-800/90 backdrop-blur-md border-b border-slate-200 dark:border-slate-700/80">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-4">
+      
+      <!-- Brand Logo -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-emerald-600 to-teal-400 flex items-center justify-center text-white shadow-md shadow-emerald-500/20">
+          <i data-lucide="activity" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <span class="text-lg font-extrabold tracking-tight bg-gradient-to-r from-emerald-600 to-teal-500 bg-clip-text text-transparent">NutriTrack</span>
+          <span class="hidden sm:inline-block ml-2 text-[11px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/50 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60">
+            Cronometer Pro Style
+          </span>
+        </div>
+      </div>
+
+      <!-- Date Navigator -->
+      <div class="flex items-center gap-1.5 sm:gap-2 bg-slate-100 dark:bg-slate-700/50 p-1 rounded-xl border border-slate-200/60 dark:border-slate-600/40">
+        <button onclick="changeDate(-1)" title="Previous Day" class="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-600 transition shadow-sm">
+          <i data-lucide="chevron-left" class="w-4 h-4"></i>
+        </button>
+
+        <div class="flex items-center gap-2 px-2">
+          <i data-lucide="calendar" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i>
+          <span id="date-display-label" class="text-xs sm:text-sm font-semibold text-slate-700 dark:text-slate-200 min-w-[130px] sm:min-w-[180px] text-center">
+            Loading...
+          </span>
+          <input type="date" id="date-picker" onchange="setDate(this.value)" class="opacity-0 absolute w-6 h-6 cursor-pointer -ml-8" title="Pick Date">
+        </div>
+
+        <button onclick="changeDate(1)" title="Next Day" class="p-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-600 transition shadow-sm">
+          <i data-lucide="chevron-right" class="w-4 h-4"></i>
+        </button>
+
+        <button onclick="setDate(new Date().toISOString().split('T')[0])" class="text-xs font-semibold px-2 py-1 text-emerald-600 dark:text-emerald-400 hover:bg-white dark:hover:bg-slate-600 rounded-lg transition">
+          Today
+        </button>
+
+        <button onclick="syncWhatsAppMeals()" id="nav-sync-btn" title="Sync meals logged via WhatsApp" class="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 transition active:scale-95">
+          <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+          <span class="hidden sm:inline">Sync WhatsApp</span>
+        </button>
+
+        <button onclick="manualSaveDiary()" id="nav-save-btn" title="Save All Logs" class="inline-flex items-center gap-1.5 px-3 py-1 text-xs font-bold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition active:scale-95">
+          <i data-lucide="save" class="w-3.5 h-3.5"></i>
+          <span id="nav-save-text">Save</span>
+        </button>
+      </div>
+
+      <!-- Quick Action Buttons -->
+      <div class="flex items-center gap-2">
+        <!-- Phone & WhatsApp Guide -->
+        <button onclick="openMobileGuideModal()" title="How to use on Phone & WhatsApp" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900 transition shadow-sm">
+          <i data-lucide="smartphone" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i>
+          <span>Phone / WhatsApp</span>
+        </button>
+
+        <!-- AI / Chat Quick Log -->
+        <button onclick="openAddFoodModal('breakfast'); switchAddTab('chat');" class="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-sm hover:opacity-95 transition">
+          <i data-lucide="sparkles" class="w-4 h-4"></i>
+          <span>Chat Log</span>
+        </button>
+
+        <!-- Excel Import / Export -->
+        <button onclick="openAddFoodModal('breakfast'); switchAddTab('excel');" class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600 transition shadow-sm">
+          <i data-lucide="file-spreadsheet" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i>
+          <span>Excel</span>
+        </button>
+
+        <!-- Targets & TDEE -->
+        <button onclick="openTargetsModal()" title="Target & TDEE Calculator" class="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+          <i data-lucide="sliders" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Settings Modal -->
+        <button onclick="openSettingsModal()" title="API & App Settings" class="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+          <i data-lucide="settings" class="w-4 h-4"></i>
+        </button>
+
+        <!-- Theme Toggle -->
+        <button onclick="toggleTheme()" title="Toggle Dark/Light Mode" class="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-700 transition">
+          <i data-lucide="moon" class="w-4 h-4 hidden dark:inline"></i>
+          <i data-lucide="sun" class="w-4 h-4 dark:hidden"></i>
+        </button>
+      </div>
+
+    </div>
+  </header>
+
+  <!-- Main Content Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full space-y-6">
+
+    <!-- Top Macro & Calorie Summary Section -->
+    <section id="macro-summary" class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <!-- Injected by app.js -->
+    </section>
+
+    <!-- Main Grid: Meal Diary (Left) + Export & Details (Right) -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      
+      <!-- Food Diary Column (2 Cols) -->
+      <div class="lg:col-span-2 space-y-6">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 class="text-lg font-bold text-slate-800 dark:text-white">Daily Food Diary</h2>
+            <p class="text-xs text-slate-600 dark:text-slate-400">Track meals, adjust portions, and view real-time macro contributions</p>
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button onclick="openAddFoodModal('breakfast'); switchAddTab('chat');" class="inline-flex sm:hidden items-center gap-1 px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 text-white">
+              <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Chat
+            </button>
+            <button onclick="openAddFoodModal('breakfast')" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-slate-800 dark:bg-slate-700 text-white hover:bg-slate-900 transition">
+              <i data-lucide="plus-circle" class="w-3.5 h-3.5"></i> Quick Log
+            </button>
+          </div>
+        </div>
+
+        <!-- Meals Container (Breakfast, Lunch, Dinner, Snacks) -->
+        <div id="meals-container">
+          <!-- Injected by app.js -->
+        </div>
+
+        <!-- Dedicated Save Diet & Data Protection Bar (At the end of the meals list) -->
+        <div class="bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-emerald-500/30 dark:border-emerald-500/40 p-5 flex flex-col sm:flex-row items-center justify-between gap-4 transition-all">
+          <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+              <i data-lucide="shield-check" class="w-5 h-5"></i>
+            </div>
+            <div>
+              <h4 class="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
+                <span>Save Today's Diet & Log</span>
+                <span class="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">Protected</span>
+              </h4>
+              <p id="save-status-indicator" class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                All foods and macros are secured in local memory.
+              </p>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-2 w-full sm:w-auto">
+            <button onclick="manualSaveDiary()" id="btn-manual-save" class="flex-1 sm:flex-none px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 transition">
+              <i data-lucide="save" class="w-4 h-4"></i>
+              <span id="btn-save-label">Save Day's Diet</span>
+            </button>
+            <button onclick="downloadBackupJson()" title="Download a JSON backup file to your computer" class="px-3 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 font-semibold text-xs rounded-xl transition flex items-center gap-1.5 shadow-sm">
+              <i data-lucide="download" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i>
+              <span class="hidden md:inline">Download Backup</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Full Micronutrient Breakdown Accordion/Card -->
+        <div id="micronutrient-container">
+          <!-- Injected by app.js -->
+        </div>
+      </div>
+
+      <!-- Right Column: Shortcuts, Excel Tools & Nutritrack Highlights -->
+      <div class="space-y-6">
+        
+        <!-- Quick Log Assist Card (Chat & Natural Language) -->
+        <div class="bg-gradient-to-br from-emerald-600 to-teal-700 rounded-2xl p-5 text-white shadow-md shadow-emerald-500/10">
+          <div class="flex items-center gap-2 mb-2">
+            <i data-lucide="sparkles" class="w-5 h-5 text-emerald-200"></i>
+            <h3 class="font-bold text-sm">Natural Language Chat Log</h3>
+          </div>
+          <p class="text-xs text-emerald-100 mb-4 leading-relaxed">
+            Type or paste what you ate naturally (e.g. <em>"3 eggs, 2 slices toast, 1 tbsp butter"</em>) and our engine parses portions and macros instantly!
+          </p>
+          <button onclick="openAddFoodModal('breakfast'); switchAddTab('chat');" class="w-full py-2.5 px-3 bg-white text-emerald-800 font-bold text-xs rounded-xl hover:bg-emerald-50 transition flex items-center justify-center gap-1.5 shadow-sm">
+            <i data-lucide="message-square-plus" class="w-4 h-4"></i> Open Chat Logger
+          </button>
+        </div>
+
+        <!-- Excel & Spreadsheet Integration Card -->
+        <div class="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm border border-slate-200 dark:border-slate-700/80">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="p-1.5 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-lg">
+              <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+            </div>
+            <h3 class="font-bold text-sm text-slate-800 dark:text-white">Excel & CSV Hub</h3>
+          </div>
+          <p class="text-xs text-slate-600 dark:text-slate-400 mb-4 leading-relaxed">
+            Import spreadsheets with your meal plan or export your daily logs to share with a nutritionist.
+          </p>
+          <div class="space-y-2">
+            <button onclick="openAddFoodModal('breakfast'); switchAddTab('excel');" class="w-full py-2 px-3 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-200 text-xs font-semibold rounded-xl transition flex items-center justify-center gap-1.5">
+              <i data-lucide="upload" class="w-3.5 h-3.5"></i> Import Excel / CSV
+            </button>
+            <button onclick="window.ExcelHandler.downloadExcelTemplate()" class="w-full py-2 px-3 bg-slate-50 dark:bg-slate-750 hover:bg-slate-100 text-slate-600 dark:text-slate-300 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center justify-center gap-1.5">
+              <i data-lucide="download" class="w-3.5 h-3.5"></i> Download Template (.xlsx)
+            </button>
+            <button onclick="window.ExcelHandler.exportDiaryToExcel(APP_STATE.diary, APP_STATE.activeDate)" class="w-full py-2 px-3 bg-slate-50 dark:bg-slate-750 hover:bg-slate-100 text-slate-600 dark:text-slate-300 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-700 transition flex items-center justify-center gap-1.5">
+              <i data-lucide="share" class="w-3.5 h-3.5"></i> Export Today's Log (.xlsx)
+            </button>
+          </div>
+        </div>
+
+        <!-- USDA FoodData Central Info Card -->
+        <div class="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm border border-slate-200 dark:border-slate-700/80">
+          <div class="flex items-center gap-2 mb-2">
+            <div class="p-1.5 bg-blue-100 dark:bg-blue-950/60 text-blue-600 dark:text-blue-400 rounded-lg">
+              <i data-lucide="database" class="w-4 h-4"></i>
+            </div>
+            <h3 class="font-bold text-sm text-slate-800 dark:text-white">USDA Database Standard</h3>
+          </div>
+          <p class="text-xs text-slate-600 dark:text-slate-400 leading-relaxed mb-3">
+            Connected to official USDA FoodData Central SR Legacy & Foundation foods. Track accurate micronutrients including electrolytes, vitamins, minerals, and fatty acids.
+          </p>
+          <div class="flex items-center justify-between text-[11px] text-slate-600 dark:text-slate-400 pt-2 border-t border-slate-100 dark:border-slate-700">
+            <span>Status: <strong class="text-emerald-600 dark:text-emerald-400">Live API Ready</strong></span>
+            <button onclick="openSettingsModal()" class="text-emerald-600 hover:underline font-medium">Configure Key</button>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="mt-auto border-t border-slate-200 dark:border-slate-700 bg-white/50 dark:bg-slate-800/50 py-4 text-center text-xs text-slate-600 dark:text-slate-400">
+    <p>NutriTrack • Precision Nutrition & Macronutrient Tracking App inspired by Cronometer</p>
+  </footer>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: ADD FOOD (Search, Chat Log, Excel, Custom Food)  -->
+  <!-- ======================================================== -->
+  <div id="add-food-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 w-full max-w-3xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in duration-150">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <span>Add Food to <span id="modal-meal-name" class="text-emerald-600 dark:text-emerald-400">Breakfast</span></span>
+          </h3>
+          <p class="text-xs text-slate-600 dark:text-slate-400">Search USDA database, paste natural text, or import spreadsheet</p>
+        </div>
+        <button onclick="closeAddFoodModal()" class="p-1.5 rounded-lg text-slate-600 hover:text-slate-800 dark:hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="px-6 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50/50 dark:bg-slate-800/50 flex gap-2 overflow-x-auto">
+        <button id="tab-btn-search" onclick="switchAddTab('search')" class="px-4 py-2 font-medium text-xs rounded-xl bg-emerald-600 text-white shadow-sm flex items-center gap-1.5 transition">
+          <i data-lucide="search" class="w-3.5 h-3.5"></i> Search Foods
+        </button>
+        <button id="tab-btn-chat" onclick="switchAddTab('chat')" class="px-4 py-2 font-medium text-xs rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center gap-1.5 transition">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5"></i> Chat / Quick Paste
+        </button>
+        <button id="tab-btn-excel" onclick="switchAddTab('excel')" class="px-4 py-2 font-medium text-xs rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center gap-1.5 transition">
+          <i data-lucide="file-spreadsheet" class="w-3.5 h-3.5"></i> Excel Import
+        </button>
+        <button id="tab-btn-custom" onclick="switchAddTab('custom')" class="px-4 py-2 font-medium text-xs rounded-xl bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 flex items-center gap-1.5 transition">
+          <i data-lucide="plus-square" class="w-3.5 h-3.5"></i> Custom Food
+        </button>
+      </div>
+
+      <!-- Tab Content Area -->
+      <div class="p-6 overflow-y-auto flex-1 space-y-4">
+        
+        <!-- PANE 1: SEARCH FOODS -->
+        <div id="tab-pane-search" class="space-y-4">
+          <!-- Search Bar -->
+          <div class="relative">
+            <i data-lucide="search" class="w-4 h-4 text-slate-600 absolute left-3.5 top-3.5"></i>
+            <input type="text" id="search-food-input" placeholder="Search 300,000+ foods (e.g. egg, chicken breast, oats, salmon, avocado)..." 
+              class="w-full pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-750 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-white">
+          </div>
+
+          <!-- Portion Adjust Pane (Shown when a food is selected) -->
+          <div id="portion-adjust-pane" class="hidden p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-emerald-800 dark:text-emerald-300 uppercase tracking-wide">Adjust Serving Portion</span>
+              <span id="portion-preview-grams" class="text-xs font-mono font-semibold text-emerald-700 dark:text-emerald-300">100g</span>
+            </div>
+
+            <h4 id="portion-food-name" class="font-bold text-sm text-slate-800 dark:text-white">Selected Food</h4>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Serving Amount / Multiplier</label>
+                <input type="number" id="portion-amount-input" value="1" min="0.1" step="0.1" oninput="updatePortionPreview()" 
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-semibold">
+              </div>
+
+              <div>
+                <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400 mb-1">Serving Measure</label>
+                <select id="portion-measure-select" onchange="updatePortionPreview()" 
+                  class="w-full px-3 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm font-semibold">
+                  <!-- Injected dynamically -->
+                </select>
+              </div>
+            </div>
+
+            <!-- Real-time Macro preview -->
+            <div class="flex items-center justify-between pt-2 border-t border-emerald-200/60 dark:border-emerald-800/60 text-xs">
+              <div class="flex items-center gap-3">
+                <span class="font-bold text-slate-800 dark:text-white"><span id="portion-preview-calories">0</span> kcal</span>
+                <span class="text-emerald-600 font-medium">P: <span id="portion-preview-protein">0g</span></span>
+                <span class="text-amber-600 font-medium">C: <span id="portion-preview-carbs">0g</span></span>
+                <span class="text-rose-600 font-medium">F: <span id="portion-preview-fat">0g</span></span>
+              </div>
+
+              <button onclick="confirmAddFoodToDiary()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg shadow-sm transition">
+                + Add to Diary
+              </button>
+            </div>
+          </div>
+
+          <!-- Search Results List -->
+          <div id="search-results-list" class="space-y-2 max-h-[320px] overflow-y-auto pr-1">
+            <!-- Injected by app.js -->
+          </div>
+        </div>
+
+        <!-- PANE 2: CHAT / NATURAL LANGUAGE QUICK LOG -->
+        <div id="tab-pane-chat" class="hidden space-y-4">
+          <div class="bg-slate-50 dark:bg-slate-750 p-4 rounded-xl border border-slate-200 dark:border-slate-700">
+            <label class="block text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400 mb-2">
+              Describe what you ate (Natural Language)
+            </label>
+            <textarea id="chat-input-text" rows="4" placeholder="Examples:&#10;• 3 large eggs, 2 slices whole wheat toast, 1 tbsp butter, 1 black coffee&#10;• Lunch: 150g grilled chicken breast, 1 cup jasmine rice, 100g steamed broccoli&#10;• 1 scoop whey protein with 1 cup milk and 1 medium banana"
+              class="w-full p-3 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 text-slate-800 dark:text-white font-mono"></textarea>
+            
+            <div class="flex items-center justify-between mt-3">
+              <div class="flex items-center gap-2 text-xs">
+                <span class="text-slate-600 dark:text-slate-400">Assign to:</span>
+                <select id="chat-meal-select" class="px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+                  <option value="breakfast">Breakfast</option>
+                  <option value="lunch">Lunch</option>
+                  <option value="dinner">Dinner</option>
+                  <option value="snacks">Snacks</option>
+                </select>
+              </div>
+
+              <button id="btn-parse-chat" onclick="handleParseChatInput()" class="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white font-semibold text-xs rounded-xl shadow-sm transition flex items-center gap-1.5">
+                <i data-lucide="sparkles" class="w-4 h-4"></i> Parse Foods
+              </button>
+            </div>
+          </div>
+
+          <!-- Parsed Items Preview -->
+          <div id="chat-parsed-wrapper" class="hidden space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Detected Food Items</span>
+              <button onclick="confirmAddChatItemsToDiary()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition">
+                + Add All to Diary
+              </button>
+            </div>
+            <div id="chat-parsed-items" class="space-y-2 max-h-[220px] overflow-y-auto">
+              <!-- Injected by chat-parser.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- PANE 3: EXCEL IMPORT -->
+        <div id="tab-pane-excel" class="hidden space-y-4">
+          <div class="border-2 border-dashed border-slate-300 dark:border-slate-600 rounded-2xl p-6 text-center hover:border-emerald-500 transition bg-slate-50/50 dark:bg-slate-750/30">
+            <i data-lucide="file-spreadsheet" class="w-10 h-10 text-emerald-500 mx-auto mb-2"></i>
+            <h4 class="font-bold text-sm text-slate-800 dark:text-white">Upload Spreadsheet (.xlsx, .xls, .csv)</h4>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1 max-w-sm mx-auto">
+              Supports columns like Date, Meal, Food Name, Amount, Unit, Calories, Protein, Carbs, Fat.
+            </p>
+            
+            <div class="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <label class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs rounded-xl cursor-pointer shadow-sm transition">
+                Browse Files
+                <input type="file" id="excel-file-input" accept=".xlsx,.xls,.csv" onchange="handleExcelFileUpload(event)" class="hidden">
+              </label>
+
+              <button onclick="window.ExcelHandler.downloadExcelTemplate()" class="px-3 py-2 bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 text-xs font-medium rounded-xl hover:bg-slate-50 transition">
+                Download Sample Template
+              </button>
+            </div>
+
+            <div id="excel-upload-status" class="mt-3 text-xs"></div>
+          </div>
+
+          <!-- Excel Preview List -->
+          <div id="excel-preview-wrapper" class="hidden space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Import Preview</span>
+              <button onclick="confirmAddExcelToDiary()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow-sm transition">
+                + Commit All to Diary
+              </button>
+            </div>
+            <div id="excel-preview-list" class="space-y-2 max-h-[220px] overflow-y-auto">
+              <!-- Injected by excel-handler.js -->
+            </div>
+          </div>
+        </div>
+
+        <!-- PANE 4: CUSTOM FOOD -->
+        <div id="tab-pane-custom" class="hidden space-y-3">
+          <form onsubmit="handleCustomFoodSubmit(event)" class="space-y-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="sm:col-span-2">
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Food Name *</label>
+                <input type="text" id="custom-name" required placeholder="e.g. Grandma's Oatmeal Cookie" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Serving Size (Grams)</label>
+                <input type="number" id="custom-grams" value="100" min="1" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Calories (kcal) *</label>
+                <input type="number" id="custom-cals" required value="200" min="0" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Protein (g)</label>
+                <input type="number" id="custom-protein" value="10" step="0.1" min="0" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Total Carbs (g)</label>
+                <input type="number" id="custom-carbs" value="25" step="0.1" min="0" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Total Fat (g)</label>
+                <input type="number" id="custom-fat" value="8" step="0.1" min="0" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Dietary Fiber (g)</label>
+                <input type="number" id="custom-fiber" value="3" step="0.1" min="0" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+
+              <div>
+                <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Sodium (mg)</label>
+                <input type="number" id="custom-sodium" value="150" min="0" 
+                  class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-sm">
+              </div>
+            </div>
+
+            <button type="submit" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+              Save Custom Food & Log to Diary
+            </button>
+          </form>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: EDIT FOOD ITEM (Portion, Meal, Macros)            -->
+  <!-- ======================================================== -->
+  <div id="edit-item-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col animate-in fade-in duration-150">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <i data-lucide="edit-3" class="w-4 h-4 text-emerald-600 dark:text-emerald-400"></i>
+            <span>Edit Food Entry</span>
+          </h3>
+          <p id="edit-food-name-subtitle" class="text-xs text-slate-500 dark:text-slate-400 font-medium truncate max-w-sm">Food Name</p>
+        </div>
+        <button onclick="closeEditItemModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <!-- Modal Body -->
+      <div class="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        <input type="hidden" id="edit-item-meal-orig">
+        <input type="hidden" id="edit-item-index-orig">
+
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Meal Category</label>
+            <select id="edit-item-meal" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-semibold">
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+              <option value="snacks">Snacks & Supplements</option>
+            </select>
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Portion / Amount</label>
+            <input type="number" id="edit-item-amount" step="0.1" min="0.01" oninput="handleEditPortionChange()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-semibold">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Serving Unit Label</label>
+            <input type="text" id="edit-item-unit" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-semibold">
+          </div>
+
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Total Weight (Grams)</label>
+            <input type="number" id="edit-item-grams" step="1" min="1" oninput="handleEditGramsChange()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-xs font-semibold">
+          </div>
+        </div>
+
+        <!-- Nutrient Edit Fields -->
+        <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-700/30 border border-slate-200 dark:border-slate-700 space-y-3">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide">Nutrition Values</span>
+            <span class="text-[10px] text-slate-500 dark:text-slate-400">Auto-scales with grams, or edit directly</span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Calories (kcal)</label>
+              <input type="number" id="edit-item-calories" step="1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-slate-800 dark:text-white">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">Protein (g)</label>
+              <input type="number" id="edit-item-protein" step="0.1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-emerald-600 dark:text-emerald-400">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-amber-600 dark:text-amber-400">Net Carbs (g)</label>
+              <input type="number" id="edit-item-netcarbs" step="0.1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-amber-600 dark:text-amber-400">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-rose-600 dark:text-rose-400">Fat (g)</label>
+              <input type="number" id="edit-item-fat" step="0.1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-rose-600 dark:text-rose-400">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Total Carbs (g)</label>
+              <input type="number" id="edit-item-carbs" step="0.1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-cyan-600 dark:text-cyan-400">Fiber (g)</label>
+              <input type="number" id="edit-item-fiber" step="0.1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold text-cyan-600 dark:text-cyan-400">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Sodium (mg)</label>
+              <input type="number" id="edit-item-sodium" step="1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Potassium (mg)</label>
+              <input type="number" id="edit-item-potassium" step="1" min="0" class="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            </div>
+          </div>
+        </div>
+
+        <div class="flex items-center gap-3 pt-2">
+          <button onclick="saveEditedItem()" class="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md shadow-emerald-600/20 transition flex items-center justify-center gap-1.5">
+            <i data-lucide="check" class="w-4 h-4"></i> Save Changes
+          </button>
+          <button onclick="closeEditItemModal()" class="px-4 py-2.5 bg-slate-100 dark:bg-slate-700 hover:bg-slate-200 dark:hover:bg-slate-600 text-slate-700 dark:text-slate-200 text-xs font-semibold rounded-xl transition">
+            Cancel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: TARGETS & TDEE CALCULATOR                        -->
+  <!-- ======================================================== -->
+  <div id="targets-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-800 dark:text-white">Nutrition Targets & BMR Calculator</h3>
+          <p class="text-xs text-slate-600 dark:text-slate-400">Mifflin-St Jeor metabolic rate and custom macro goals</p>
+        </div>
+        <button onclick="closeTargetsModal()" class="p-1.5 rounded-lg text-slate-600 hover:text-slate-800 dark:hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Biological Sex</label>
+            <select id="prof-gender" onchange="calculateAndPreviewTargets()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+              <option value="male">Male</option>
+              <option value="female">Female</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Age (Years)</label>
+            <input type="number" id="prof-age" value="28" min="10" oninput="calculateAndPreviewTargets()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Weight (kg)</label>
+            <input type="number" id="prof-weight" value="78" min="30" oninput="calculateAndPreviewTargets()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Height (cm)</label>
+            <input type="number" id="prof-height" value="178" min="100" oninput="calculateAndPreviewTargets()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Activity Level</label>
+            <select id="prof-activity" onchange="calculateAndPreviewTargets()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+              <option value="sedentary">Sedentary (desk job)</option>
+              <option value="light">Lightly Active (1-3 days/wk)</option>
+              <option value="moderate" selected>Moderately Active (3-5 days/wk)</option>
+              <option value="active">Very Active (6-7 days/wk)</option>
+            </select>
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Goal</label>
+            <select id="prof-goal" onchange="calculateAndPreviewTargets()" class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-semibold">
+              <option value="fat_loss" selected>Fat Loss (-500 kcal)</option>
+              <option value="mild_loss">Mild Deficit (-250 kcal)</option>
+              <option value="maintenance">Maintenance</option>
+              <option value="muscle_gain">Muscle Gain (+500 kcal)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 dark:bg-slate-750 p-4 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+          <div class="flex items-center justify-between text-xs">
+            <span class="text-slate-600 dark:text-slate-400">Estimated BMR: <strong id="calc-bmr" class="text-slate-800 dark:text-white">1700 kcal</strong></span>
+            <span class="text-slate-600 dark:text-slate-400">Estimated TDEE: <strong id="calc-tdee" class="text-slate-800 dark:text-white">2450 kcal</strong></span>
+          </div>
+
+          <div class="grid grid-cols-4 gap-2 pt-2 border-t border-slate-200 dark:border-slate-700">
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Target Cals</label>
+              <input type="number" id="calc-cals" class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-emerald-600">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Protein (g)</label>
+              <input type="number" id="calc-protein" class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-emerald-600">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Net Carbs (g)</label>
+              <input type="number" id="calc-netcarbs" class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-amber-600">
+            </div>
+            <div>
+              <label class="block text-[11px] font-semibold text-slate-600 dark:text-slate-400">Fat (g)</label>
+              <input type="number" id="calc-fat" class="w-full px-2 py-1 rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-bold text-rose-600">
+            </div>
+          </div>
+        </div>
+
+        <button onclick="saveTargetsFromModal()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+          Save Targets & Recalculate Dashboard
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: SETTINGS & USDA API KEY                           -->
+  <!-- ======================================================== -->
+  <div id="settings-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 w-full max-w-md rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-800 dark:text-white">Settings & Food Database</h3>
+          <p class="text-xs text-slate-600 dark:text-slate-400">Configure USDA API key and storage</p>
+        </div>
+        <button onclick="closeSettingsModal()" class="p-1.5 rounded-lg text-slate-600 hover:text-slate-800 dark:hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4">
+        <div>
+          <label class="block text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+            USDA FoodData Central API Key
+          </label>
+          <input type="text" id="usda-api-key-input" placeholder="DEMO_KEY (or paste your free key)" 
+            class="w-full px-3 py-2 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-xs font-mono">
+          <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-1">
+            NutriTrack uses the default free <code class="bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded">DEMO_KEY</code> out of the box. You can get an unlimited personal key at <a href="https://api.data.gov/signup/" target="_blank" class="text-emerald-600 hover:underline">api.data.gov/signup</a>.
+          </p>
+        </div>
+
+        <div class="pt-3 border-t border-slate-200 dark:border-slate-700 space-y-2">
+          <button onclick="saveSettingsModal()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-sm transition">
+            Save Settings
+          </button>
+          <button onclick="clearAllData()" class="w-full py-2 bg-rose-50 dark:bg-rose-950/40 hover:bg-rose-100 text-rose-600 font-semibold text-xs rounded-xl transition">
+            Clear Local Diary Cache
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================================================== -->
+  <!-- MODAL: MOBILE PHONE & WHATSAPP ACCESS GUIDE             -->
+  <!-- ======================================================== -->
+  <div id="mobile-guide-modal" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm hidden items-center justify-center p-4">
+    <div class="bg-white dark:bg-slate-800 w-full max-w-xl rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-700 overflow-hidden flex flex-col animate-in fade-in duration-150">
+      <div class="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
+        <div>
+          <h3 class="text-base font-bold text-slate-800 dark:text-white flex items-center gap-2">
+            <i data-lucide="smartphone" class="w-5 h-5 text-emerald-600"></i>
+            <span>Log from Phone & WhatsApp</span>
+          </h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Never be tied to your laptop to track your daily food</p>
+        </div>
+        <button onclick="closeMobileGuideModal()" class="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 dark:hover:text-white transition">
+          <i data-lucide="x" class="w-5 h-5"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-5 max-h-[80vh] overflow-y-auto text-xs leading-relaxed text-slate-700 dark:text-slate-300">
+        
+        <!-- Step 1: Install on Phone (PWA) -->
+        <div class="p-4 rounded-xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 space-y-2">
+          <h4 class="font-bold text-sm text-emerald-800 dark:text-emerald-300 flex items-center gap-2">
+            <span>1. Install as an App on iPhone or Android (PWA)</span>
+          </h4>
+          <p class="text-xs text-slate-600 dark:text-slate-300">
+            NutriTrack is a certified Progressive Web App. When deployed, it installs as a real app icon on your phone with zero app-store hassle:
+          </p>
+          <ul class="list-disc pl-5 space-y-1 text-slate-700 dark:text-slate-300 font-medium">
+            <li><strong>iPhone (Safari):</strong> Open your app URL, tap the <i data-lucide="share" class="w-3.5 h-3.5 inline"></i> <em>Share</em> button, then tap <strong>"Add to Home Screen"</strong>.</li>
+            <li><strong>Android (Chrome):</strong> Open your app URL, tap the three dots (<i data-lucide="more-vertical" class="w-3.5 h-3.5 inline"></i>), then tap <strong>"Install App"</strong>.</li>
+          </ul>
+        </div>
+
+        <!-- Step 2: The WhatsApp Workflow -->
+        <div class="p-4 rounded-xl bg-teal-50 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800 space-y-2">
+          <h4 class="font-bold text-sm text-teal-800 dark:text-teal-300 flex items-center gap-2">
+            <span>2. The Zero-Friction WhatsApp Workflow</span>
+          </h4>
+          <p class="text-xs text-slate-600 dark:text-slate-300">
+            WhatsApp has a native <strong>"Message Yourself"</strong> chat at the top of your chat list. You can jot down foods as you eat throughout the day:
+          </p>
+          <div class="bg-white dark:bg-slate-850 p-3 rounded-lg border border-teal-200/60 dark:border-teal-800 font-mono text-[11px] text-slate-800 dark:text-slate-200">
+            Breakfast: 3 eggs, 2 toast, 1 black coffee<br>
+            Lunch: 150g grilled chicken, 1 cup white rice, broccoli<br>
+            Snack: 1 scoop whey, 5g creatine, 1 banana
+          </div>
+          <p class="text-xs text-slate-600 dark:text-slate-400">
+            When you open NutriTrack on your phone, simply tap <strong>Chat Log</strong> ➔ Paste! Our parser automatically cleans WhatsApp timestamps and logs everything in seconds.
+          </p>
+        </div>
+
+        <!-- Step 3: 1-Click Free Cloud Deployment -->
+        <div class="p-4 rounded-xl bg-slate-50 dark:bg-slate-750 border border-slate-200 dark:border-slate-700 space-y-2">
+          <h4 class="font-bold text-sm text-slate-800 dark:text-white flex items-center gap-2">
+            <span>3. Free 24/7 Cloud Hosting (Laptop Can Be OFF)</span>
+          </h4>
+          <p class="text-xs text-slate-600 dark:text-slate-400">
+            To access your app from your phone anywhere in the world (even when your laptop is closed and asleep):
+          </p>
+          <div class="space-y-1.5 font-medium">
+            <p>• <strong>Vercel / Netlify:</strong> Connect your folder or GitHub repo for a free <code>https://my-macro-tracker.vercel.app</code> URL.</p>
+            <p>• <strong>GitHub Pages:</strong> Free public hosting directly from any GitHub repository.</p>
+          </div>
+        </div>
+
+        <button onclick="closeMobileGuideModal()" class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-md transition">
+          Got It, Let's Track!
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Mobile Bottom Sticky Navigation (Native App Feel on iPhone & Android) -->
+  <div class="sm:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-800/95 backdrop-blur-md border-t border-slate-200 dark:border-slate-700 py-2 px-3 flex justify-around items-center text-[10px] font-semibold text-slate-600 dark:text-slate-400 shadow-lg">
+    <button onclick="window.scrollTo({top: 0, behavior: 'smooth'})" class="flex flex-col items-center gap-1 hover:text-emerald-600 transition">
+      <i data-lucide="layout-dashboard" class="w-5 h-5 text-emerald-600"></i>
+      <span>Dashboard</span>
+    </button>
+    <button onclick="openAddFoodModal('breakfast')" class="flex flex-col items-center gap-1 hover:text-emerald-600 transition">
+      <div class="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center -mt-3 shadow-md shadow-emerald-500/30">
+        <i data-lucide="plus" class="w-5 h-5"></i>
+      </div>
+      <span>Add Food</span>
+    </button>
+    <button onclick="openAddFoodModal('breakfast'); switchAddTab('chat');" class="flex flex-col items-center gap-1 hover:text-emerald-600 transition">
+      <i data-lucide="sparkles" class="w-5 h-5"></i>
+      <span>Chat Log</span>
+    </button>
+    <button onclick="manualSaveDiary()" class="flex flex-col items-center gap-1 hover:text-emerald-600 transition">
+      <i data-lucide="save" class="w-5 h-5 text-teal-600"></i>
+      <span>Save Diet</span>
+    </button>
+  </div>
+
+  <!-- Scripts -->
+  <script src="global-foods.js"></script>
+  <script src="targets.js"></script>
+  <script src="usda-api.js"></script>
+  <script src="chat-parser.js"></script>
+  <script src="excel-handler.js"></script>
+  <script src="app.js"></script>
+
+  <!-- Service Worker Registration -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').then(() => {
+          console.log('NutriTrack: Service worker registered for offline PWA');
+        }).catch(err => {
+          console.log('NutriTrack: Service worker setup note:', err);
+        });
+      });
+    }
+  </script>
+</body>
+</html>
