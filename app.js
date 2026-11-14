@@ -1587,29 +1587,47 @@ async function syncWhatsAppMeals() {
     let itemsAddedCount = 0;
 
     for (const entry of data.meals) {
+      const entryDate = entry.date || APP_STATE.activeDate;
+      if (!APP_STATE.diary[entryDate]) {
+        APP_STATE.diary[entryDate] = { breakfast: [], lunch: [], dinner: [], snacks: [] };
+      }
+      const targetDay = APP_STATE.diary[entryDate];
+
       const rawMeal = (entry.meal || 'Breakfast').toLowerCase();
       let targetMeal = 'breakfast';
       if (rawMeal.includes('lunch')) targetMeal = 'lunch';
       else if (rawMeal.includes('dinner')) targetMeal = 'dinner';
       else if (rawMeal.includes('snack')) targetMeal = 'snacks';
 
-      if (!day[targetMeal]) day[targetMeal] = [];
+      if (!targetDay[targetMeal]) targetDay[targetMeal] = [];
 
       if (Array.isArray(entry.items)) {
         for (const it of entry.items) {
-          day[targetMeal].push({
+          const qty = it.qty || 1;
+          const foodName = it.name || it.displayName || 'Food Item';
+          const unit = it.unit || 'serving';
+          const grams = it.grams || Math.round(qty * 100);
+          const calories = Math.round(it.cals || 0);
+          const protein = Math.round((it.p || 0) * 10) / 10;
+          const carbs = Math.round((it.c || 0) * 10) / 10;
+          const netCarbs = Math.round((it.netCarbs !== undefined ? it.netCarbs : (it.c || 0)) * 10) / 10;
+          const fat = Math.round((it.f || 0) * 10) / 10;
+          const fiber = Math.round((it.fiber || 0) * 10) / 10;
+
+          targetDay[targetMeal].push({
             id: `wa-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            name: it.name,
+            name: foodName,
             category: 'WhatsApp',
-            amount: 1,
-            unit: 'serving',
-            grams: 100,
+            amount: qty,
+            unit: unit,
+            grams: grams,
             nutrients: {
-              calories: it.cals || 0,
-              protein: it.p || 0,
-              carbs: it.c || 0,
-              fat: it.f || 0,
-              fiber: 0
+              calories: calories,
+              protein: protein,
+              carbs: carbs,
+              netCarbs: netCarbs, // <-- Fixes Net Carbs display & calculations
+              fat: fat,
+              fiber: fiber
             }
           });
           itemsAddedCount++;
