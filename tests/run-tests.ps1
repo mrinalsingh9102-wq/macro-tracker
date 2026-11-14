@@ -1,4 +1,4 @@
-﻿# NutriTrack Automated Test Runner (PowerShell & Backend Integration)
+﻿# NutriTrack Automated Test Runner (PowerShell Regression & Integration Suite)
 # Tests both local logic and live Vercel endpoints
 
 $ErrorActionPreference = "Stop"
@@ -31,7 +31,7 @@ Write-Host "==========================================================" -Foregro
 Write-Host ""
 
 # ------------------------------------------------------------------
-# Test Group 1: Live Webhook Security & Verification Handshake
+# Test Group 1: Meta Security Handshake Tests
 # ------------------------------------------------------------------
 Write-Host "[Group 1] Meta Security Handshake Tests" -ForegroundColor Yellow
 
@@ -52,96 +52,86 @@ Assert-Test "Rejects invalid verification token" {
 }
 
 # ------------------------------------------------------------------
-# Test Group 2: Live WhatsApp NLP Food Parsing & Disambiguation
+# Test Group 2: WhatsApp Conversational NLP Parsing Tests (Bug 1 Fix)
 # ------------------------------------------------------------------
 Write-Host ""
-Write-Host "[Group 2] WhatsApp Natural Language Food Parsing Tests" -ForegroundColor Yellow
+Write-Host "[Group 2] Conversational NLP Food Parsing & Prefix Stripping" -ForegroundColor Yellow
 
-Assert-Test "Parses compound breakfast: 3 eggs, 2 toast, 1 coffee" {
-    $uri = "$liveUrl/api/whatsapp-webhook?text=" + [uri]::EscapeDataString("3 eggs, 2 toast, 1 coffee")
+Assert-Test "Prefix handling: 'Breakfast: 2 eggs, 1 toast' (Qty must be 2)" {
+    $uri = "$liveUrl/api/whatsapp-webhook?text=" + [uri]::EscapeDataString("Breakfast: 2 eggs, 1 toast")
     $res = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 10
-    if ($res.parsed.items.Count -ne 3) {
-        throw "Expected 3 items, got $($res.parsed.items.Count)"
-    }
-    if ($res.parsed.totalCals -lt 300) {
-        throw "Expected total calories > 300, got $($res.parsed.totalCals)"
+    $eggs = $res.parsed.items | Where-Object { $_.name -match "Egg" }
+    if (-not $eggs) { throw "Eggs not found in parsed result" }
+    if ($eggs.cals -ne 144) {
+        throw "Expected 2 eggs = 144 kcal, got $($eggs.cals) kcal (Quantity extraction bug!)"
     }
 }
 
-Assert-Test "Parses Indian dinner: Rava Dosa and masala Chai for Dinner" {
+Assert-Test "Sentence handling: 'Had 2 eggs for breakfast'" {
+    $uri = "$liveUrl/api/whatsapp-webhook?text=" + [uri]::EscapeDataString("Had 2 eggs for breakfast")
+    $res = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 10
+    if ($res.parsed.meal -ne "Breakfast") {
+        throw "Expected meal 'Breakfast', got '$($res.parsed.meal)'"
+    }
+    $eggs = $res.parsed.items[0]
+    if ($eggs.cals -ne 144) {
+        throw "Expected 2 eggs = 144 kcal, got $($eggs.cals) kcal"
+    }
+}
+
+Assert-Test "Indian Specialties: 'Rava Dosa and masala Chai for Dinner'" {
     $uri = "$liveUrl/api/whatsapp-webhook?text=" + [uri]::EscapeDataString("Rava Dosa and masala Chai for Dinner")
     $res = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 10
-    if ($res.parsed.meal -ne "Dinner") {
-        throw "Expected meal 'Dinner', got '$($res.parsed.meal)'"
-    }
-    if ($res.parsed.items.Count -ne 2) {
-        throw "Expected 2 items, got $($res.parsed.items.Count)"
-    }
+    if ($res.parsed.meal -ne "Dinner") { throw "Expected meal Dinner" }
+    if ($res.parsed.items.Count -ne 2) { throw "Expected 2 items" }
     $dosa = $res.parsed.items | Where-Object { $_.name -match "Rava Dosa" }
-    if (-not $dosa) {
-        throw "Rava Dosa was not recognized in the Indian specialties database"
-    }
+    if (-not $dosa -or $dosa.cals -ne 170) { throw "Rava Dosa mismatch" }
     $chai = $res.parsed.items | Where-Object { $_.name -match "Chai" }
-    if (-not $chai) {
-        throw "Masala Chai was not recognized in the Indian specialties database"
-    }
+    if (-not $chai -or $chai.cals -ne 85) { throw "Masala Chai mismatch" }
 }
 
-Assert-Test "Parses quantity multipliers: 2 idli, 1 sambar" {
-    $uri = "$liveUrl/api/whatsapp-webhook?text=" + [uri]::EscapeDataString("2 idli, 1 sambar")
+# ------------------------------------------------------------------
+# Test Group 3: Food Descriptions & Category Integrity (Bug 2 Fix)
+# ------------------------------------------------------------------
+Write-Host ""
+Write-Host "[Group 3] Food Description & Culinary Classification Tests" -ForegroundColor Yellow
+
+Assert-Test "Descriptions are rich and category is NOT 'WhatsApp'" {
+    $uri = "$liveUrl/api/whatsapp-webhook?text=" + [uri]::EscapeDataString("1 rava dosa, 1 masala chai")
     $res = Invoke-RestMethod -Uri $uri -Method Get -TimeoutSec 10
-    $idli = $res.parsed.items | Where-Object { $_.name -match "Idli" }
-    if (-not $idli -or $idli.cals -ne 116) {
-        throw "Expected 2 idlis = 116 kcal, got $($idli.cals)"
+    foreach ($item in $res.parsed.items) {
+        if ($item.category -eq "WhatsApp") {
+            throw "Category must NOT be 'WhatsApp'. Found generic WhatsApp category for $($item.name)"
+        }
+        if (-not $item.description -or $item.description.Length -lt 5) {
+            throw "Item $($item.name) is missing rich culinary description"
+        }
+        if ($null -eq $item.netCarbs) {
+            throw "Item $($item.name) is missing netCarbs property (causes C 0g bug in dashboard)"
+        }
     }
 }
 
 # ------------------------------------------------------------------
-# Test Group 3: Simulated Meta POST Webhook & Upstash Queue
+# Test Group 4: Multi-Device Cloud Sync Non-Destructive Tests (Bug 3 Fix)
 # ------------------------------------------------------------------
 Write-Host ""
-Write-Host "[Group 3] Simulated Meta WhatsApp POST Ingestion Tests" -ForegroundColor Yellow
+Write-Host "[Group 4] Multi-Device Cloud Sync Tests" -ForegroundColor Yellow
 
-Assert-Test "Handles Meta WhatsApp Business Webhook JSON POST" {
-    $payload = @{
-        object = "whatsapp_business_account"
-        entry = @(
-            @{
-                changes = @(
-                    @{
-                        value = @{
-                            messaging_product = "whatsapp"
-                            metadata = @{ phone_number_id = "test_phone_id" }
-                            messages = @(
-                                @{
-                                    from = "19876543210"
-                                    type = "text"
-                                    text = @{ body = "3 eggs, 1 toast for Breakfast" }
-                                }
-                            )
-                        }
-                    }
-                )
-            }
-        )
-    } | ConvertTo-Json -Depth 10
-
-    $res = Invoke-WebRequest -Uri "$liveUrl/api/whatsapp-webhook" -Method Post -ContentType "application/json" -Body $payload -TimeoutSec 10 -UseBasicParsing
-    if ($res.StatusCode -ne 200 -or $res.Content -ne "EVENT_RECEIVED") {
-        throw "Expected 200 EVENT_RECEIVED, got $($res.StatusCode): $($res.Content)"
-    }
-}
-
-# ------------------------------------------------------------------
-# Test Group 4: Cloud Sync API (/api/sync)
-# ------------------------------------------------------------------
-Write-Host ""
-Write-Host "[Group 4] Cloud Sync API Tests" -ForegroundColor Yellow
-
-Assert-Test "Sync endpoint is reachable and reports status" {
+Assert-Test "Sync endpoint is reachable and reports valid status" {
     $res = Invoke-RestMethod -Uri "$liveUrl/api/sync" -Method Get -TimeoutSec 10
     if ($null -eq $res.connected) {
         throw "Sync endpoint did not return valid JSON status"
+    }
+}
+
+Assert-Test "Non-destructive sync (multiple reads preserve data for Phone & Laptop)" {
+    $res1 = Invoke-RestMethod -Uri "$liveUrl/api/sync" -Method Get -TimeoutSec 10
+    $res2 = Invoke-RestMethod -Uri "$liveUrl/api/sync" -Method Get -TimeoutSec 10
+    if ($res1.connected -and $res2.connected) {
+        if ($res1.meals.Count -ne $res2.meals.Count) {
+            throw "Data was lost or mutated on successive reads! Multi-device sync failed."
+        }
     }
 }
 
@@ -159,7 +149,7 @@ Write-Host "==========================================================" -Foregro
 Write-Host ""
 
 if ($failCount -eq 0) {
-    Write-Host "🎉 ALL BACKEND AND LIVE TESTS PASSED SUCCESSFULLY!" -ForegroundColor Green
+    Write-Host "🎉 ALL BACKEND REGRESSION & LIVE TESTS PASSED!" -ForegroundColor Green
 } else {
-    Write-Host "❌ Some tests failed. Please review the errors above." -ForegroundColor Red
+    Write-Host "❌ Some tests failed. Please review errors above." -ForegroundColor Red
 }

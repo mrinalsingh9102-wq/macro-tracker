@@ -1,5 +1,5 @@
-// API Sync Endpoint: Connects WhatsApp meal logs to the NutriTrack Web App
-// Works with Vercel KV (free Upstash Redis) to deliver incoming WhatsApp meals into the web diary
+// Multi-Device Cloud Sync API for NutriTrack
+// Persists and synchronizes food logs across Phone, Laptop, and WhatsApp via Upstash Redis / Vercel KV
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -21,51 +21,100 @@ module.exports = async (req, res) => {
     });
   }
 
+  const dateParam = (req.query && req.query.date) || new Date().toISOString().split('T')[0];
+  const dayKey = `nutritrack_day_${dateParam}`;
+
   try {
     if (req.method === 'GET') {
-      // Fetch all pending WhatsApp meals that haven't been synced to the browser yet
-      const response = await fetch(`${kvUrl}/lrange/nutritrack_pending_meals/0/-1`, {
+      // 1. Fetch persistent day meals from Upstash KV (Non-destructive: Safe for Phone + Laptop)
+      const response = await fetch(`${kvUrl}/get/${dayKey}`, {
         headers: { Authorization: `Bearer ${kvToken}` }
       });
       const data = await response.json();
-      const rawList = data.result || [];
-      const meals = rawList.map(item => {
-        try { return typeof item === 'string' ? JSON.parse(item) : item; } catch (e) { return null; }
-      }).filter(Boolean);
+      let dayMeals = [];
+      if (data && data.result) {
+        try {
+          dayMeals = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+          if (!Array.isArray(dayMeals)) dayMeals = [];
+        } catch (e) {
+          dayMeals = [];
+        }
+      }
 
-      return res.status(200).json({ connected: true, meals });
+      // 2. Also check and merge legacy pending queue if any meals were written there
+      const pendingRes = await fetch(`${kvUrl}/lrange/nutritrack_pending_meals/0/-1`, {
+        headers: { Authorization: `Bearer ${kvToken}` }
+      });
+      const pendingData = await pendingRes.json();
+      if (pendingData && Array.isArray(pendingData.result) && pendingData.result.length > 0) {
+        let merged = false;
+        for (let raw of pendingData.result) {
+          try {
+            const m = typeof raw === 'string' ? JSON.parse(raw) : raw;
+            if (m && !dayMeals.some(existing => existing.id === m.id)) {
+              dayMeals.push(m);
+              merged = true;
+            }
+          } catch(e) {}
+        }
+        if (merged) {
+          // Persist the merged list back to the persistent dayKey
+          await fetch(`${kvUrl}/set/${dayKey}`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${kvToken}` },
+            body: JSON.stringify(dayMeals)
+          });
+        }
+      }
+
+      return res.status(200).json({
+        connected: true,
+        date: dateParam,
+        meals: dayMeals
+      });
     }
 
     if (req.method === 'POST') {
-      // Clear/Acknowledge synced meals so they don't get added twice
-      const { syncedIds } = req.body || {};
-      if (syncedIds && syncedIds.length > 0) {
-        // Fetch current list, filter out syncedIds, and rewrite
-        const response = await fetch(`${kvUrl}/lrange/nutritrack_pending_meals/0/-1`, {
-          headers: { Authorization: `Bearer ${kvToken}` }
-        });
-        const data = await response.json();
-        const rawList = data.result || [];
-        const remaining = rawList
-          .map(item => { try { return typeof item === 'string' ? JSON.parse(item) : item; } catch (e) { return null; } })
-          .filter(m => m && !syncedIds.includes(m.id));
+      // Allow syncing new meals from client
+      const { meal, meals } = req.body || {};
+      const response = await fetch(`${kvUrl}/get/${dayKey}`, {
+        headers: { Authorization: `Bearer ${kvToken}` }
+      });
+      const data = await response.json();
+      let dayMeals = [];
+      if (data && data.result) {
+        try {
+          dayMeals = typeof data.result === 'string' ? JSON.parse(data.result) : data.result;
+          if (!Array.isArray(dayMeals)) dayMeals = [];
+        } catch (e) {
+          dayMeals = [];
+        }
+      }
 
-        // Delete old and write remaining
-        await fetch(`${kvUrl}/del/nutritrack_pending_meals`, {
-          headers: { Authorization: `Bearer ${kvToken}` }
-        });
-
-        if (remaining.length > 0) {
-          for (let rem of remaining) {
-            await fetch(`${kvUrl}/rpush/nutritrack_pending_meals`, {
-              method: 'POST',
-              headers: { Authorization: `Bearer ${kvToken}` },
-              body: JSON.stringify(rem)
-            });
+      let updated = false;
+      if (meal && meal.id) {
+        if (!dayMeals.some(m => m.id === meal.id)) {
+          dayMeals.push(meal);
+          updated = true;
+        }
+      } else if (Array.isArray(meals)) {
+        for (let m of meals) {
+          if (m && m.id && !dayMeals.some(ex => ex.id === m.id)) {
+            dayMeals.push(m);
+            updated = true;
           }
         }
       }
-      return res.status(200).json({ success: true });
+
+      if (updated) {
+        await fetch(`${kvUrl}/set/${dayKey}`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${kvToken}` },
+          body: JSON.stringify(dayMeals)
+        });
+      }
+
+      return res.status(200).json({ success: true, count: dayMeals.length });
     }
 
     return res.status(405).json({ error: 'Method not allowed' });

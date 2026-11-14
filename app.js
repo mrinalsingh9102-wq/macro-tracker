@@ -562,8 +562,11 @@ function renderMealDiary(mealTotals) {
                     <span class="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 shrink-0 font-medium">
                       ${item.amount} ${item.unit} (${item.grams}g)
                     </span>
+                    ${item.source === 'whatsapp' ? `<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 font-semibold shrink-0">WhatsApp</span>` : ''}
                   </div>
-                  <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate">${item.category || 'General Food'}</p>
+                  <p class="text-xs text-slate-600 dark:text-slate-400 mt-0.5 truncate">
+                    ${item.description ? `${item.category ? item.category + ' • ' : ''}${item.description}` : (item.category || 'General Food')}
+                  </p>
                 </div>
 
                 <div class="flex items-center gap-3 shrink-0">
@@ -721,12 +724,14 @@ function changeDate(deltaDays) {
   APP_STATE.activeDate = current.toISOString().split('T')[0];
   updateDateUI();
   renderDashboard();
+  syncWhatsAppMeals();
 }
 
 function setDate(dateStr) {
   APP_STATE.activeDate = dateStr;
   updateDateUI();
   renderDashboard();
+  syncWhatsAppMeals();
 }
 
 function updateDateUI() {
@@ -1577,34 +1582,33 @@ async function syncWhatsAppMeals() {
   if (syncIcon) syncIcon.classList.add('animate-spin');
 
   try {
-    const res = await fetch('/api/sync');
+    const activeDate = APP_STATE.activeDate || new Date().toISOString().split('T')[0];
+    const res = await fetch(`/api/sync?date=${encodeURIComponent(activeDate)}`);
     if (!res.ok) return;
     const data = await res.json();
     if (!data.connected || !data.meals || data.meals.length === 0) return;
 
-    const day = getActiveDayDiary();
-    const syncedIds = [];
+    if (!APP_STATE.diary[activeDate]) {
+      APP_STATE.diary[activeDate] = { breakfast: [], lunch: [], dinner: [], snacks: [] };
+    }
+    const day = APP_STATE.diary[activeDate];
     let itemsAddedCount = 0;
 
     for (const entry of data.meals) {
-      const entryDate = entry.date || APP_STATE.activeDate;
-      if (!APP_STATE.diary[entryDate]) {
-        APP_STATE.diary[entryDate] = { breakfast: [], lunch: [], dinner: [], snacks: [] };
-      }
-      const targetDay = APP_STATE.diary[entryDate];
-
       const rawMeal = (entry.meal || 'Breakfast').toLowerCase();
       let targetMeal = 'breakfast';
       if (rawMeal.includes('lunch')) targetMeal = 'lunch';
       else if (rawMeal.includes('dinner')) targetMeal = 'dinner';
       else if (rawMeal.includes('snack')) targetMeal = 'snacks';
 
-      if (!targetDay[targetMeal]) targetDay[targetMeal] = [];
+      if (!day[targetMeal]) day[targetMeal] = [];
 
       if (Array.isArray(entry.items)) {
         for (const it of entry.items) {
           const qty = it.qty || 1;
           const foodName = it.name || it.displayName || 'Food Item';
+          const category = it.category || 'General Food';
+          const description = it.description || '';
           const unit = it.unit || 'serving';
           const grams = it.grams || Math.round(qty * 100);
           const calories = Math.round(it.cals || 0);
@@ -1614,39 +1618,43 @@ async function syncWhatsAppMeals() {
           const fat = Math.round((it.f || 0) * 10) / 10;
           const fiber = Math.round((it.fiber || 0) * 10) / 10;
 
-          targetDay[targetMeal].push({
-            id: `wa-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
-            name: foodName,
-            category: 'WhatsApp',
-            amount: qty,
-            unit: unit,
-            grams: grams,
-            nutrients: {
-              calories: calories,
-              protein: protein,
-              carbs: carbs,
-              netCarbs: netCarbs, // <-- Fixes Net Carbs display & calculations
-              fat: fat,
-              fiber: fiber
-            }
+          // Multi-device safe deduplication: avoids duplicate entries across laptop & phone
+          const isAlreadyInDiary = day[targetMeal].some(ex => {
+            return (it.id && ex.id === it.id) ||
+                   (ex.name.toLowerCase() === foodName.toLowerCase() &&
+                    Math.round(ex.nutrients.calories) === calories &&
+                    Math.abs(ex.amount - qty) < 0.05);
           });
-          itemsAddedCount++;
+
+          if (!isAlreadyInDiary) {
+            day[targetMeal].push({
+              id: it.id || `wa-${Date.now()}-${Math.random().toString(36).substr(2, 4)}`,
+              source: 'whatsapp',
+              name: foodName,
+              category: category,
+              description: description,
+              amount: qty,
+              unit: unit,
+              grams: grams,
+              nutrients: {
+                calories: calories,
+                protein: protein,
+                carbs: carbs,
+                netCarbs: netCarbs, // Accurately updates Net Carbs gauges & daily totals
+                fat: fat,
+                fiber: fiber
+              }
+            });
+            itemsAddedCount++;
+          }
         }
       }
-      syncedIds.push(entry.id);
     }
 
     if (itemsAddedCount > 0) {
       saveState();
       renderDashboard();
-      showToast(`📲 Auto-synced ${itemsAddedCount} meal item(s) from WhatsApp!`);
-
-      // Acknowledge sync so meals aren't added again
-      await fetch('/api/sync', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ syncedIds })
-      });
+      showToast(`📲 Synced ${itemsAddedCount} meal item(s) from WhatsApp!`);
     }
   } catch (err) {
     // Silent fail if offline or local server
